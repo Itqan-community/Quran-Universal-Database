@@ -1,0 +1,880 @@
+---
+title: "Mushaf Databases - Comprehensive Statistics Analysis"
+author: "Quran Universal Database Project"
+date: "`r Sys.Date()`"
+output: 
+  html_notebook:
+    toc: true
+    toc_float: true
+    theme: united
+    highlight: tango
+---
+
+# Mushaf Databases - Comprehensive Statistics Analysis
+
+## Overview
+
+This R Notebook provides comprehensive statistical analysis of all Mushaf databases, focusing on:
+
+-   **Total Ayahs count** across all databases
+-   **Words per page statistics** (minimum, maximum, average)
+-   **Total pages count** for each Mushaf layout
+-   **Lines per page analysis** for different layouts
+-   **Surah-to-page mapping** showing which Surahs appear on which pages
+-   **Comparative analysis** between different Mushaf layouts and publishers
+
+## Target Databases
+
+The analysis covers **11 different Mushaf databases** with various layouts:
+
+1.  **Indo-Pak 13 lines** (Qudratullah layout)
+2.  **QPC v1 15 lines** (Quran Printing Complex version 1)
+3.  **Uthmani 15 lines** (Classic Uthmani script)
+4.  **Digital Khatt 15 lines** (Modern digital font)
+5.  **Indo-Pak 13 lines** (Taj Company)
+6.  **QPC Hafs 15 lines** (QPC Hafs version)
+7.  **QPC Nastaleeq 15 lines** (Nastaleeq script)
+8.  **QPC v2 15 lines** (Quran Printing Complex version 2)
+9.  **Qudratullah Indo-Pak 15 lines** (Extended layout)
+10. **Taj Indo-Pak 16 lines** (16-line layout)
+11. **QPC v4 Tajweed 15 lines** (With Tajweed markings)
+
+## Key Metrics Analyzed
+
+### 📊 Quantitative Metrics
+
+-   Total number of Ayahs in each database
+-   Total word count across all Ayahs
+-   Complete page counts for each Mushaf
+-   Statistical distribution of words per page
+
+### 📏 Layout Metrics
+
+-   Average lines per page for different layouts
+-   Comparison between 13, 15, and 16-line layouts
+-   Layout efficiency analysis
+
+### 📖 Content Organization
+
+-   Surah distribution across pages
+-   Page ranges for each Surah
+-   Cross-database consistency analysis
+
+------------------------------------------------------------------------
+
+## Setup and Dependencies
+
+```{r setup, message=FALSE, warning=FALSE}
+# Core database connectivity
+library(DBI)          # Database interface for R
+library(RSQLite)      # SQLite driver for database connections
+
+# Data manipulation and analysis
+library(dplyr)        # Data manipulation grammar
+library(purrr)        # Functional programming tools
+
+# String processing
+library(stringr)      # String manipulation functions
+
+# Visualization and reporting
+library(knitr)        # Dynamic report generation
+library(tibble)       # Modern data frames
+
+# Optional libraries (will load if available)
+if (require(ggplot2, quietly = TRUE)) {
+  cat("✅ ggplot2 loaded for visualizations\n")
+} else {
+  cat("⚠️ ggplot2 not available - visualizations will be skipped\n")
+}
+
+if (require(DT, quietly = TRUE)) {
+  cat("✅ DT loaded for interactive tables\n")
+} else {
+  cat("⚠️ DT not available - using basic tables\n")
+}
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 12,
+  fig.height = 8
+)
+
+# Record start time for execution tracking
+start_time <- Sys.time()
+
+cat("✅ All required libraries loaded successfully\n")
+cat("📅 Analysis started at:", format(start_time), "\n")
+```
+
+## Database Configuration
+
+```{r database_setup}
+# Define the base directory where all Mushaf databases are stored
+base_path <- "C:/Users/omarh/OneDrive/Belgeler/Software Projects/Quran Database/Mushafs"
+
+# Create comprehensive database information table
+db_info <- tibble(
+  id = 1:11,
+  name = c(
+    "indopak-13-lines-layout-qudratullah",
+    "qpc-v1-15-lines", 
+    "uthmani-15-lines",
+    "digital-khatt-15-lines",
+    "indopak-13-lines-taj-company",
+    "qpc-hafs-15-lines",
+    "qpc-nastaleeq-15-lines", 
+    "qpc-v2-15-lines",
+    "qudratullah-indopak-15-lines",
+    "taj-indopak-16-lines",
+    "qpc-v4-tajweed-15-lines"
+  ),
+  folder = sprintf("%02d-%s.db", id, name),
+  db_file = paste0(name, ".db"),
+  full_path = file.path(base_path, folder, db_file),
+  display_name = sprintf("%02d - %s", id, name),
+  # Extract layout information
+  lines_per_page = case_when(
+    grepl("13.*lines", name) ~ 13L,
+    grepl("15.*lines", name) ~ 15L, 
+    grepl("16.*lines", name) ~ 16L,
+    TRUE ~ NA_integer_
+  ),
+  script_type = case_when(
+    grepl("indopak", name, ignore.case = TRUE) ~ "Indo-Pak",
+    grepl("uthmani", name, ignore.case = TRUE) ~ "Uthmani",
+    grepl("nastaleeq", name, ignore.case = TRUE) ~ "Nastaleeq",
+    grepl("khatt", name, ignore.case = TRUE) ~ "Digital Khatt",
+    TRUE ~ "QPC Standard"
+  ),
+  publisher = case_when(
+    grepl("qpc|hafs", name, ignore.case = TRUE) ~ "QPC",
+    grepl("taj", name, ignore.case = TRUE) ~ "Taj Company", 
+    grepl("qudratullah", name, ignore.case = TRUE) ~ "Qudratullah",
+    TRUE ~ "Other"
+  )
+)
+
+# Display database configuration
+cat("📋 Database Configuration Summary:\n")
+print(kable(db_info %>% select(id, display_name, lines_per_page, script_type, publisher), 
+            caption = "Mushaf Database Configuration"))
+```
+
+## Database Connection Functions
+
+```{r connection_functions}
+# Safe database connection with error handling
+connect_to_db <- function(db_path) {
+  if (file.exists(db_path)) {
+    tryCatch({
+      conn <- dbConnect(RSQLite::SQLite(), db_path)
+      cat("✅ Connected to:", basename(db_path), "\n")
+      return(conn)
+    }, error = function(e) {
+      cat("❌ Connection failed for:", basename(db_path), "-", e$message, "\n")
+      return(NULL)
+    })
+  } else {
+    cat("❌ Database file not found:", db_path, "\n")
+    return(NULL)
+  }
+}
+
+# Get comprehensive table information
+get_table_info <- function(conn, table_name) {
+  if (!is.null(conn) && table_name %in% dbListTables(conn)) {
+    tryCatch({
+      # Get schema
+      schema <- dbGetQuery(conn, paste("PRAGMA table_info(", table_name, ")"))
+      # Get row count
+      row_count <- dbGetQuery(conn, paste("SELECT COUNT(*) as count FROM", table_name))$count
+      # Get sample data
+      sample_data <- dbGetQuery(conn, paste("SELECT * FROM", table_name, "LIMIT 3"))
+      
+      return(list(
+        schema = schema,
+        row_count = row_count,
+        sample_data = sample_data,
+        columns = schema$name
+      ))
+    }, error = function(e) {
+      cat("Error getting table info for", table_name, ":", e$message, "\n")
+      return(NULL)
+    })
+  } else {
+    return(NULL)
+  }
+}
+
+cat("🔧 Database connection functions defined\n")
+```
+
+## Database Schema Analysis and Pattern Detection
+
+```{r schema_analysis}
+# Initialize connection storage
+db_connections <- list()
+db_schemas <- list()
+connection_summary <- tibble()
+
+cat("🔌 Establishing database connections and analyzing schemas...\n\n")
+
+# Connect to all databases and deeply analyze structure
+for (i in 1:nrow(db_info)) {
+  db_name <- db_info$name[i]
+  db_path <- db_info$full_path[i] 
+  display_name <- db_info$display_name[i]
+  
+  cat("Database", i, "of", nrow(db_info), ":", display_name, "\n")
+  
+  if (file.exists(db_path)) {
+    conn <- connect_to_db(db_path)
+    
+    if (!is.null(conn)) {
+      db_connections[[db_name]] <- conn
+      tables <- dbListTables(conn)
+      
+      # Deep schema analysis
+      schema_info <- list(
+        display_name = display_name,
+        tables = tables,
+        detailed_schemas = list()
+      )
+      
+      cat("   📋 Tables found:", length(tables), "\n")
+      cat("   📋 Table names:", paste(tables, collapse = ", "), "\n")
+      
+      # Analyze each table in detail
+      for (table in tables) {
+        tryCatch({
+          # Get schema
+          table_schema <- dbGetQuery(conn, paste("PRAGMA table_info(", table, ")"))
+          # Get sample data (first 3 rows)
+          sample_data <- dbGetQuery(conn, paste("SELECT * FROM", table, "LIMIT 3"))
+          # Get row count
+          row_count <- dbGetQuery(conn, paste("SELECT COUNT(*) as count FROM", table))$count
+          
+          schema_info$detailed_schemas[[table]] <- list(
+            schema = table_schema,
+            sample_data = sample_data,
+            row_count = row_count,
+            columns = table_schema$name
+          )
+          
+          cat("     🔍 Table '", table, "':\n")
+          cat("       - Columns:", paste(table_schema$name, collapse = ", "), "\n")
+          cat("       - Rows:", row_count, "\n")
+          
+          # Look for word ID patterns
+          word_id_cols <- table_schema$name[grepl("word.*id|id.*word", table_schema$name, ignore.case = TRUE)]
+          if (length(word_id_cols) > 0) {
+            cat("       - Word ID columns found:", paste(word_id_cols, collapse = ", "), "\n")
+            
+            # Check for start/end word ID patterns
+            for (word_col in word_id_cols) {
+              if (nrow(sample_data) > 0 && word_col %in% names(sample_data)) {
+                word_range <- dbGetQuery(conn, paste("SELECT MIN(", word_col, ") as min_id, MAX(", word_col, ") as max_id FROM", table))
+                cat("       - ", word_col, " range:", word_range$min_id, "to", word_range$max_id, "\n")
+              }
+            }
+          }
+          
+          # Look for page-related columns
+          page_cols <- table_schema$name[grepl("page", table_schema$name, ignore.case = TRUE)]
+          if (length(page_cols) > 0) {
+            cat("       - Page columns:", paste(page_cols, collapse = ", "), "\n")
+          }
+          
+        }, error = function(e) {
+          cat("     ❌ Error analyzing table", table, ":", e$message, "\n")
+        })
+      }
+      
+      db_schemas[[db_name]] <- schema_info
+      
+      connection_summary <- bind_rows(connection_summary, tibble(
+        database = display_name,
+        status = "✅ Connected & Analyzed",
+        table_count = length(tables),
+        tables = paste(tables, collapse = ", ")
+      ))
+      
+    } else {
+      connection_summary <- bind_rows(connection_summary, tibble(
+        database = display_name, 
+        status = "❌ Connection Failed",
+        table_count = 0,
+        tables = "N/A"
+      ))
+    }
+  } else {
+    connection_summary <- bind_rows(connection_summary, tibble(
+      database = display_name,
+      status = "❌ File Not Found", 
+      table_count = 0,
+      tables = "N/A"
+    ))
+  }
+  cat("\n")
+}
+
+cat("📊 Connection and Analysis Summary:\n")
+print(kable(connection_summary, caption = "Database Connection and Schema Analysis Status"))
+```
+
+## Line-Based Word Analysis (Pages Table)
+
+```{r line_based_analysis}
+# Initialize comprehensive statistics storage
+mushaf_statistics <- tibble()
+page_word_statistics <- tibble()
+surah_page_mapping <- tibble()
+
+cat("📈 Starting line-based word analysis from 'pages' table...\n\n")
+
+# Ensure we have database connections from previous step
+if (length(db_connections) == 0) {
+  cat("❌ No database connections available. Please run the schema analysis section first.\n")
+} else {
+  cat("✅ Found", length(db_connections), "database connections\n\n")
+}
+
+for (db_name in names(db_connections)) {
+  conn <- db_connections[[db_name]]
+  display_name <- db_info$display_name[db_info$name == db_name]
+  
+  if (!is.null(conn)) {
+    cat("Analyzing:", display_name, "\n")
+    
+    # Initialize database statistics
+    db_stats <- list(
+      database = display_name,
+      total_words = 0,
+      total_lines = 0,
+      total_pages = 0,
+      total_surahs = 0,
+      avg_words_per_page = 0,
+      avg_lines_per_page = 0,
+      min_words_per_page = Inf,
+      max_words_per_page = 0,
+      word_id_range = ""
+    )
+    
+    # Focus only on the 'pages' table (skip 'info' table)
+    tables <- dbListTables(conn)
+    pages_table <- tables[grepl("pages", tables, ignore.case = TRUE)]
+    
+    if (length(pages_table) > 0) {
+      table_name <- pages_table[1]  # Use first pages table found
+      
+      tryCatch({
+        # Get table schema
+        schema <- dbGetQuery(conn, paste("PRAGMA table_info(", table_name, ")"))
+        columns <- schema$name
+        row_count <- dbGetQuery(conn, paste("SELECT COUNT(*) as count FROM", table_name))$count
+        
+        cat("  📋 Table:", table_name, "with", row_count, "lines\n")
+        cat("  📋 Columns:", paste(columns, collapse = ", "), "\n")
+        
+        # Initialize variables for comparison
+        max_word_estimate <- NULL
+        
+        # METHOD 1: Quick estimate using last_word_id from final row
+        if ("last_word_id" %in% columns) {
+          max_word_query <- paste("SELECT MAX(last_word_id) as max_word_id FROM", table_name, "WHERE last_word_id IS NOT NULL")
+          max_word_result <- dbGetQuery(conn, max_word_query)
+          
+          if (nrow(max_word_result) > 0 && !is.na(max_word_result$max_word_id) && !is.null(max_word_result$max_word_id)) {
+            max_word_estimate <- as.numeric(max_word_result$max_word_id)
+            db_stats$total_words <- max_word_estimate
+            cat("  ✓ Quick estimate - Total words (from max last_word_id):", format(db_stats$total_words, big.mark = ","), "\n")
+          } else {
+            cat("  ⚠️ Quick estimate - No valid last_word_id values found\n")
+          }
+        }
+        
+        # METHOD 2: Precise count by summing words per line
+        if ("first_word_id" %in% columns && "last_word_id" %in% columns) {
+          # Calculate words per line: (last_word_id - first_word_id + 1)
+          precise_count_query <- paste("SELECT SUM(last_word_id - first_word_id + 1) as total_words FROM", table_name, 
+                                      "WHERE first_word_id IS NOT NULL AND last_word_id IS NOT NULL")
+          precise_result <- dbGetQuery(conn, precise_count_query)
+          
+          if (nrow(precise_result) > 0 && !is.na(precise_result$total_words) && !is.null(precise_result$total_words)) {
+            precise_total <- as.numeric(precise_result$total_words)
+            cat("  ✓ Precise count - Total words (sum of line calculations):", format(precise_total, big.mark = ","), "\n")
+            
+            # Use precise count as primary method
+            db_stats$total_words <- precise_total
+            
+            # Compare with quick estimate if available
+            if (!is.null(max_word_estimate)) {
+              tryCatch({
+                if (precise_total != max_word_estimate) {
+                  cat("    → Difference between methods:", abs(precise_total - max_word_estimate), "words\n")
+                } else {
+                  cat("    → Both methods agree!\n")
+                }
+              }, error = function(e) {
+                cat("    → Could not compare methods\n")
+              })
+            }
+          } else {
+            cat("  ⚠️ Precise count - No valid word ID values found\n")
+          }
+        }
+        
+        # Get word ID range
+        if ("first_word_id" %in% columns && "last_word_id" %in% columns) {
+          range_query <- paste("SELECT MIN(first_word_id) as min_id, MAX(last_word_id) as max_id FROM", table_name,
+                              "WHERE first_word_id IS NOT NULL AND last_word_id IS NOT NULL")
+          range_result <- dbGetQuery(conn, range_query)
+          
+          if (nrow(range_result) > 0 && !is.na(range_result$min_id)) {
+            db_stats$word_id_range <- paste(range_result$min_id, "to", range_result$max_id)
+          }
+        }
+        
+        # Get total lines and pages (using correct column names)
+        db_stats$total_lines <- row_count
+        
+        # Check for page_number column (not just 'page')
+        page_col <- NULL
+        if ("page_number" %in% columns) {
+          page_col <- "page_number"
+        } else if ("page" %in% columns) {
+          page_col <- "page"
+        }
+        
+        if (!is.null(page_col)) {
+          page_count_query <- paste("SELECT MIN(", page_col, ") as min_page, MAX(", page_col, ") as max_page FROM", table_name,
+                                   "WHERE", page_col, "IS NOT NULL")
+          page_result <- dbGetQuery(conn, page_count_query)
+          
+          if (nrow(page_result) > 0 && !is.na(page_result$max_page)) {
+            db_stats$total_pages <- as.numeric(page_result$max_page)
+            cat("  ✓ Pages:", page_result$min_page, "to", page_result$max_page, "\n")
+          }
+        }
+        
+        # Calculate words per page (using correct page column)
+        if (!is.null(page_col) && "first_word_id" %in% columns && "last_word_id" %in% columns) {
+          words_per_page_query <- paste("SELECT", page_col, "as page_num,", 
+                                       "SUM(last_word_id - first_word_id + 1) as words",
+                                       "FROM", table_name,
+                                       "WHERE first_word_id IS NOT NULL AND last_word_id IS NOT NULL",
+                                       "GROUP BY", page_col, "ORDER BY", page_col)
+          
+          page_words <- dbGetQuery(conn, words_per_page_query)
+          
+          if (nrow(page_words) > 0) {
+            page_words <- page_words %>%
+              mutate(database = display_name)
+            
+            page_word_statistics <- bind_rows(page_word_statistics, page_words)
+            
+            # Update min/max words per page
+            db_stats$min_words_per_page <- min(page_words$words, na.rm = TRUE)
+            db_stats$max_words_per_page <- max(page_words$words, na.rm = TRUE)
+            
+            cat("  ✓ Words per page - Min:", db_stats$min_words_per_page, "Max:", db_stats$max_words_per_page, "\n")
+          }
+        }
+        
+        # Calculate lines per page (using correct page column)
+        if (!is.null(page_col)) {
+          lines_per_page_query <- paste("SELECT AVG(lines_per_page) as avg_lines FROM",
+                                       "(SELECT", page_col, ", COUNT(*) as lines_per_page FROM", table_name, 
+                                       "WHERE", page_col, "IS NOT NULL GROUP BY", page_col, ")")
+          lines_result <- dbGetQuery(conn, lines_per_page_query)
+          
+          if (nrow(lines_result) > 0 && !is.na(lines_result$avg_lines)) {
+            db_stats$avg_lines_per_page <- as.numeric(lines_result$avg_lines)
+            cat("  ✓ Average lines per page:", round(db_stats$avg_lines_per_page, 2), "\n")
+          }
+        }
+        
+        # Surah analysis (if surah column exists)
+        surah_cols <- columns[grepl("surah", columns, ignore.case = TRUE)]
+        if (length(surah_cols) > 0) {
+          surah_col <- surah_cols[1]
+          surah_count_query <- paste("SELECT COUNT(DISTINCT", surah_col, ") as surah_count FROM", table_name,
+                                    "WHERE", surah_col, "IS NOT NULL")
+          surah_count_result <- dbGetQuery(conn, surah_count_query)
+          
+          if (nrow(surah_count_result) > 0) {
+            db_stats$total_surahs <- as.numeric(surah_count_result$surah_count)
+            
+            # Surah-to-page mapping (using correct page column)
+            if (!is.null(page_col)) {
+              mapping_query <- paste("SELECT", surah_col, "as surah_number, MIN(", page_col, ") as start_page, MAX(", page_col, ") as end_page",
+                                    "FROM", table_name, 
+                                    "WHERE", surah_col, "IS NOT NULL AND", page_col, "IS NOT NULL",
+                                    "GROUP BY", surah_col, "ORDER BY", surah_col)
+              
+              surah_mapping <- dbGetQuery(conn, mapping_query)
+              if (nrow(surah_mapping) > 0) {
+                surah_mapping <- surah_mapping %>% mutate(database = display_name)
+                surah_page_mapping <- bind_rows(surah_page_mapping, surah_mapping)
+              }
+            }
+            
+            cat("  ✓ Surahs:", db_stats$total_surahs, "\n")
+          }
+        }
+        
+      }, error = function(e) {
+        cat("  ❌ Error analyzing pages table:", e$message, "\n")
+      })
+    } else {
+      cat("  ❌ No 'pages' table found\n")
+    }
+    
+    # Calculate final statistics with error protection
+    tryCatch({
+      if (!is.null(db_stats$total_pages) && !is.null(db_stats$total_words) && 
+          !is.na(db_stats$total_pages) && !is.na(db_stats$total_words) &&
+          db_stats$total_pages > 0 && db_stats$total_words > 0) {
+        db_stats$avg_words_per_page <- round(db_stats$total_words / db_stats$total_pages, 2)
+      } else {
+        db_stats$avg_words_per_page <- 0
+      }
+      
+      # Handle infinite values
+      if (is.infinite(db_stats$min_words_per_page) || is.na(db_stats$min_words_per_page)) {
+        db_stats$min_words_per_page <- 0
+      }
+      if (is.infinite(db_stats$max_words_per_page) || is.na(db_stats$max_words_per_page)) {
+        db_stats$max_words_per_page <- 0
+      }
+      
+      # Ensure all numeric fields are properly set
+      numeric_fields <- c("total_words", "total_lines", "total_pages", "total_surahs", 
+                         "avg_words_per_page", "avg_lines_per_page", "min_words_per_page", "max_words_per_page")
+      for (field in numeric_fields) {
+        if (is.null(db_stats[[field]]) || is.na(db_stats[[field]])) {
+          db_stats[[field]] <- 0
+        }
+      }
+      
+      # Ensure character fields are set
+      if (is.null(db_stats$word_id_range) || is.na(db_stats$word_id_range)) {
+        db_stats$word_id_range <- ""
+      }
+      
+      # Add to comprehensive statistics
+      mushaf_statistics <- bind_rows(mushaf_statistics, as_tibble(db_stats))
+      
+      cat("  📊 Final Summary:")
+      cat(" Words:", format(db_stats$total_words, big.mark = ","))
+      cat(" | Pages:", db_stats$total_pages)  
+      cat(" | Lines:", db_stats$total_lines)
+      cat(" | Range:", db_stats$word_id_range, "\n\n")
+      
+    }, error = function(e) {
+      cat("  ❌ Error in final calculations:", e$message, "\n\n")
+    })
+  }
+}
+
+cat("✅ Line-based word analysis completed for all databases\n")
+```
+
+## Summary Statistics Dashboard
+
+```{r statistics_dashboard}
+cat("📊 MUSHAF DATABASES - COMPREHENSIVE STATISTICS DASHBOARD\n")
+cat("="=rep("=", 60), "\n\n")
+
+# Overall Statistics Table
+cat("### Overall Statistics Summary\n")
+if (nrow(mushaf_statistics) > 0) {
+  summary_table <- mushaf_statistics %>%
+    select(database, total_words, total_pages, total_lines, total_surahs, avg_words_per_page, avg_lines_per_page, word_id_range) %>%
+    arrange(desc(total_words))
+
+  print(kable(summary_table, 
+              caption = "Complete Statistics for All Mushaf Databases",
+              col.names = c("Database", "Total Words", "Total Pages", "Total Lines", "Total Surahs", "Avg Words/Page", "Avg Lines/Page", "Word ID Range")))
+} else {
+  cat("❌ No statistics data available. Please check the line-based analysis section.\n")
+}
+
+# Words per Page Distribution
+if (nrow(page_word_statistics) > 0) {
+  cat("\n### Words per Page Analysis\n")
+  page_summary <- page_word_statistics %>%
+    group_by(database) %>%
+    summarise(
+      total_pages = n(),
+      min_words = min(words, na.rm = TRUE),
+      max_words = max(words, na.rm = TRUE), 
+      avg_words = round(mean(words, na.rm = TRUE), 2),
+      median_words = round(median(words, na.rm = TRUE), 2),
+      std_dev = round(sd(words, na.rm = TRUE), 2),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(avg_words))
+  
+  print(kable(page_summary,
+              caption = "Words per Page Distribution Statistics",
+              col.names = c("Database", "Pages", "Min Words", "Max Words", "Avg Words", "Median Words", "Std Dev")))
+}
+
+# Layout Comparison
+cat("\n### Layout Comparison Analysis\n")
+layout_comparison <- mushaf_statistics %>%
+  left_join(db_info %>% select(display_name, lines_per_page, script_type, publisher), 
+            by = c("database" = "display_name")) %>%
+  select(database, lines_per_page, script_type, publisher, total_pages, avg_words_per_page, avg_lines_per_page) %>%
+  arrange(lines_per_page, script_type)
+
+print(kable(layout_comparison,
+            caption = "Layout and Script Type Comparison",
+            col.names = c("Database", "Lines/Page", "Script Type", "Publisher", "Total Pages", "Avg Words/Page", "Avg Lines/Page")))
+```
+
+## Data Visualizations
+
+```{r visualizations, fig.width=12, fig.height=10}
+# Create comprehensive visualization dashboard
+if (require(ggplot2, quietly = TRUE) && require(gridExtra, quietly = TRUE) && nrow(mushaf_statistics) > 0) {
+  
+  # 1. Total Words Comparison
+  p1 <- ggplot(mushaf_statistics, aes(x = reorder(database, total_words), y = total_words)) +
+    geom_col(fill = "steelblue", alpha = 0.8) +
+    coord_flip() +
+    labs(title = "Total Words Across Mushaf Databases", 
+         x = NULL, y = "Total Words") +
+    theme_minimal() +
+    theme(axis.text.y = element_text(size = 8))
+  
+  # 2. Total Pages Comparison  
+  p2 <- ggplot(mushaf_statistics, aes(x = reorder(database, total_pages), y = total_pages)) +
+    geom_col(fill = "darkgreen", alpha = 0.8) +
+    coord_flip() +
+    labs(title = "Total Pages Across Mushaf Databases",
+         x = NULL, y = "Total Pages") +
+    theme_minimal() +
+    theme(axis.text.y = element_text(size = 8))
+  
+  # 3. Average Words per Page
+  stats_with_words <- mushaf_statistics %>% filter(avg_words_per_page > 0)
+  if (nrow(stats_with_words) > 0) {
+    p3 <- ggplot(stats_with_words, aes(x = reorder(database, avg_words_per_page), y = avg_words_per_page)) +
+      geom_col(fill = "orange", alpha = 0.8) +
+      coord_flip() +
+      labs(title = "Average Words per Page",
+           x = NULL, y = "Average Words per Page") +
+      theme_minimal() +
+      theme(axis.text.y = element_text(size = 8))
+  } else {
+    p3 <- NULL
+  }
+  
+  # 4. Words per Page Distribution (if data available)
+  if (nrow(page_word_statistics) > 0 && nrow(page_word_statistics) < 5000) {  # Avoid plotting too much data
+    p4 <- ggplot(page_word_statistics, aes(x = words, fill = database)) +
+      geom_histogram(alpha = 0.7, bins = 30, position = "identity") +
+      facet_wrap(~database, scales = "free_y", ncol = 2) +
+      labs(title = "Distribution of Words per Page by Database",
+           x = "Words per Page", y = "Frequency") +
+      theme_minimal() +
+      theme(legend.position = "none",
+            strip.text = element_text(size = 8),
+            axis.text = element_text(size = 7))
+    
+    # Combine all plots (including p4)
+    if (!is.null(p3)) {
+      grid.arrange(p1, p2, p3, p4, ncol = 2, heights = c(1, 1))
+    } else {
+      grid.arrange(p1, p2, p4, ncol = 2, heights = c(1, 1))
+    }
+  } else {
+    # Just show first plots without p4
+    if (!is.null(p3)) {
+      grid.arrange(p1, p2, p3, ncol = 2, heights = c(1, 1))
+    } else {
+      grid.arrange(p1, p2, ncol = 1)
+    }
+  }
+  
+} else {
+  if (nrow(mushaf_statistics) == 0) {
+    cat("📊 No statistics data available for visualization. Please check the analysis sections.\n")
+  } else {
+    cat("📊 ggplot2 or gridExtra not available. Install with: install.packages(c('ggplot2', 'gridExtra'))\n")
+  }
+}
+```
+
+## Surah-to-Page Mapping Analysis
+
+```{r surah_mapping_analysis}
+if (nrow(surah_page_mapping) > 0) {
+  cat("📖 SURAH-TO-PAGE MAPPING ANALYSIS\n")
+  cat("="=rep("=", 40), "\n\n")
+  
+  # Clean and standardize surah mapping data
+  surah_clean <- surah_page_mapping %>%
+    mutate(
+      # Clean surah identifiers (could be number or name)
+      surah_id = case_when(
+        !is.na(surah_number) ~ paste("Surah", surah_number),
+        !is.na(surah_name) ~ str_trim(surah_name),
+        TRUE ~ "Unknown"
+      ),
+      # Extract page ranges
+      page_start = case_when(
+        !is.na(start_page) ~ start_page,
+        !is.na(page) ~ page,
+        TRUE ~ NA_integer_
+      ),
+      page_end = case_when(
+        !is.na(end_page) ~ end_page,
+        !is.na(page) ~ page,
+        TRUE ~ NA_integer_
+      )
+    ) %>%
+    filter(!is.na(page_start)) %>%
+    arrange(database, page_start)
+  
+  # Sample of surah mappings
+  cat("### Sample Surah-to-Page Mappings\n")
+  sample_mapping <- surah_clean %>%
+    select(database, surah_id, page_start, page_end) %>%
+    group_by(database) %>%
+    slice_head(n = 10) %>%
+    ungroup()
+  
+  if (nrow(sample_mapping) > 0) {
+    print(kable(sample_mapping,
+                caption = "Sample Surah-to-Page Mappings (First 10 per database)",
+                col.names = c("Database", "Surah", "Start Page", "End Page")))
+  }
+  
+  # Summary statistics for surah mappings
+  cat("\n### Surah Mapping Summary Statistics\n")
+  mapping_summary <- surah_clean %>%
+    group_by(database) %>%
+    summarise(
+      total_surahs = n(),
+      avg_pages_per_surah = round(mean(page_end - page_start + 1, na.rm = TRUE), 2),
+      min_pages_per_surah = min(page_end - page_start + 1, na.rm = TRUE),
+      max_pages_per_surah = max(page_end - page_start + 1, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  
+  print(kable(mapping_summary,
+              caption = "Surah Distribution Statistics by Database",
+              col.names = c("Database", "Total Surahs", "Avg Pages/Surah", "Min Pages/Surah", "Max Pages/Surah")))
+  
+} else {
+  cat("📖 No surah-to-page mapping data available in the analyzed databases.\n")
+}
+```
+
+## Detailed Database Reports
+
+```{r detailed_reports}
+cat("📋 DETAILED DATABASE REPORTS\n")
+cat("="=rep("=", 50), "\n\n")
+
+for (i in 1:nrow(mushaf_statistics)) {
+  stats <- mushaf_statistics[i, ]
+  db_details <- db_info %>% filter(display_name == stats$database)
+  
+  cat("## Database:", stats$database, "\n")
+  cat(rep("-", nchar(stats$database) + 15), "\n")
+  
+  cat("### 📊 Quantitative Metrics\n")
+  cat("• Total Words:", format(stats$total_words, big.mark = ","), "\n") 
+  cat("• Total Lines:", format(stats$total_lines, big.mark = ","), "\n")
+  cat("• Total Pages:", format(stats$total_pages, big.mark = ","), "\n")
+  cat("• Total Surahs:", stats$total_surahs, "\n")
+  cat("• Word ID Range:", stats$word_id_range, "\n")
+  
+  cat("\n### 📏 Page Metrics\n")
+  cat("• Average Words per Page:", stats$avg_words_per_page, "\n")
+  cat("• Average Lines per Page:", round(stats$avg_lines_per_page, 1), "\n")
+  if (stats$min_words_per_page > 0) {
+    cat("• Minimum Words per Page:", stats$min_words_per_page, "\n")
+    cat("• Maximum Words per Page:", stats$max_words_per_page, "\n")
+  }
+  
+  if (nrow(db_details) > 0) {
+    cat("\n### 📖 Layout Information\n")
+    if (!is.na(db_details$lines_per_page)) {
+      cat("• Lines per Page:", db_details$lines_per_page, "\n")
+    }
+    cat("• Script Type:", db_details$script_type, "\n")
+    cat("• Publisher:", db_details$publisher, "\n")
+  }
+  
+  # Add page statistics if available
+  db_page_stats <- page_word_statistics %>% filter(database == stats$database)
+  if (nrow(db_page_stats) > 0) {
+    cat("\n### 📊 Words per Page Distribution\n")
+    cat("• Standard Deviation:", round(sd(db_page_stats$words, na.rm = TRUE), 2), "\n")
+    cat("• Median Words per Page:", median(db_page_stats$words, na.rm = TRUE), "\n")
+    cat("• Pages Analyzed:", nrow(db_page_stats), "\n")
+  }
+  
+  cat("\n")
+}
+```
+
+## Data Export and Summary
+
+```{r data_export}
+# Create comprehensive summary for export
+final_summary <- mushaf_statistics %>%
+  left_join(db_info %>% select(display_name, lines_per_page, script_type, publisher), 
+            by = c("database" = "display_name")) %>%
+  arrange(desc(total_ayahs))
+
+# Export option (uncomment to save to CSV)
+# write.csv(final_summary, "mushaf_statistics_summary.csv", row.names = FALSE)
+# write.csv(page_statistics, "words_per_page_statistics.csv", row.names = FALSE)
+# write.csv(surah_page_mapping, "surah_page_mappings.csv", row.names = FALSE)
+
+cat("📊 FINAL SUMMARY\n")
+cat("="=rep("=", 30), "\n")
+cat("✅ Databases analyzed:", nrow(final_summary), "\n")
+cat("📖 Total unique Mushaf layouts:", length(unique(final_summary$lines_per_page)), "\n")
+cat("🖋️ Script types covered:", length(unique(final_summary$script_type)), "\n")
+cat("🏢 Publishers analyzed:", length(unique(final_summary$publisher)), "\n")
+
+if (nrow(page_statistics) > 0) {
+  cat("📄 Total pages analyzed:", nrow(page_statistics), "\n")
+}
+
+if (nrow(surah_page_mapping) > 0) {
+  cat("📚 Surah mappings extracted:", nrow(surah_page_mapping), "\n")
+}
+
+cat("\n🎯 Analysis completed successfully!\n")
+```
+
+## Database Connection Cleanup
+
+```{r cleanup}
+# Properly close all database connections
+for (conn in db_connections) {
+  if (!is.null(conn)) {
+    dbDisconnect(conn)
+  }
+}
+
+cat("🔐 All database connections closed successfully.\n")
+```
+
+------------------------------------------------------------------------
+
+**Analysis completed:** `r Sys.time()`\
+**Total execution time:** `r Sys.time() - start_time` (if start_time was defined)
+
+------------------------------------------------------------------------

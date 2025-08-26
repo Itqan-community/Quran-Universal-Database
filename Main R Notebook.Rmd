@@ -1,0 +1,310 @@
+---
+title: "Quran Universal Database - Analysis"
+output: html_notebook
+---
+
+# Quran Universal Database - QUD قُد Analysis
+
+This notebook analyzes multiple Quran databases from different Mushaf layouts and publishers.
+
+## File Summary & Code Explanation
+
+### **Purpose**
+
+This R Notebook systematically connects to, explores, and compares 11 different Quran databases (SQLite format) from various Mushaf layouts and publishers. It provides comprehensive analysis including database structure exploration, sample data extraction, and comparative statistics.
+
+### **Target Databases (11 Total)**
+
+-   **01-11**: Various Mushaf layouts including Indo-Pak (13-16 lines), QPC versions (15 lines), Uthmani script, Digital Khatt, Nastaleeq, and Tajweed versions
+
+### **Dependencies & Libraries**
+
+-   **DBI**: Database interface for R - enables database connections and SQL operations
+-   **RSQLite**: SQLite driver for R - specifically handles SQLite database connections
+-   **dplyr**: Data manipulation grammar - provides functions like filter(), select(), mutate(), bind_rows()
+-   **purrr**: Functional programming tools - offers map(), walk() and other iteration functions
+-   **stringr**: String manipulation - handles text processing and pattern matching
+-   **knitr**: Document generation - enables table formatting and report creation
+-   **tibble**: Modern data frames - provides enhanced data frame creation and printing
+
+### **Main Functionality**
+
+1.  **Database Setup**: Defines paths and metadata for all 11 Quran Mushaf databases
+2.  **Connection Management**: Creates safe connection functions with error handling
+3.  **Structure Exploration**: Discovers tables and schemas in each database using SQLite PRAGMA commands
+4.  **Data Sampling**: Extracts first 5 rows from every table for content preview
+5.  **Comparative Analysis**: Counts and compares row numbers across databases
+6.  **Resource Cleanup**: Properly closes all database connections
+
+### **Key Features**
+
+-   **Error Handling**: Uses tryCatch() to prevent crashes from corrupted databases
+-   **Systematic Organization**: Numbers databases (01-11) for clear identification
+-   **Comprehensive Coverage**: Analyzes every table in every database
+-   **Resource Management**: Properly manages database connections and memory
+
+## Setup and Libraries
+
+```{r setup, message=FALSE, warning=FALSE}
+# Load DBI package - provides database interface for R
+library(DBI)
+# Load RSQLite package - enables SQLite database connections in R
+library(RSQLite)
+# Load dplyr package - provides data manipulation functions (filter, select, mutate, etc.)
+library(dplyr)
+# Load purrr package - provides functional programming tools (map, walk, etc.)
+library(purrr)
+# Load stringr package - provides string manipulation functions
+library(stringr)
+# Load knitr package - enables table formatting and document generation
+library(knitr)
+# Load tibble package - provides modern data frame creation and printing
+library(tibble)
+```
+
+## Database Paths
+
+```{r database_paths}
+# Define the base directory path where all Mushaf databases are stored
+base_path <- "C:/Users/omarh/OneDrive/Belgeler/Software Projects/Quran Database/Mushafs"
+
+# Create a structured tibble (data frame) containing information about all 11 databases
+db_info <- tibble(
+  # Create sequence of numbers from 1 to 11 for database identification
+  id = 1:11,
+  # Define the internal names for each database (without folder numbers)
+  name = c(
+    "indopak-13-lines-layout-qudratullah",  # Database 1: Indo-Pak script, 13 lines, Qudratullah layout
+    "qpc-v1-15-lines",                      # Database 2: Quran Printing Complex version 1, 15 lines
+    "uthmani-15-lines",                     # Database 3: Uthmani script, 15 lines
+    "digital-khatt-15-lines",               # Database 4: Digital Khatt font, 15 lines
+    "indopak-13-lines-taj-company",         # Database 5: Indo-Pak script, 13 lines, Taj Company
+    "qpc-hafs-15-lines",                    # Database 6: QPC Hafs version, 15 lines
+    "qpc-nastaleeq-15-lines",               # Database 7: QPC Nastaleeq script, 15 lines
+    "qpc-v2-15-lines",                      # Database 8: Quran Printing Complex version 2, 15 lines
+    "qudratullah-indopak-15-lines",         # Database 9: Qudratullah Indo-Pak, 15 lines
+    "taj-indopak-16-lines",                 # Database 10: Taj Indo-Pak script, 16 lines
+    "qpc-v4-tajweed-15-lines"               # Database 11: QPC version 4 with Tajweed, 15 lines
+  ),
+  # Generate folder names with zero-padded numbers (01-, 02-, etc.) matching file system
+  folder = sprintf("%02d-%s.db", id, name),
+  # Generate the actual database file names (adding .db extension)
+  db_file = paste0(name, ".db"),
+  # Create full file paths by combining base path, folder, and database file name
+  full_path = file.path(base_path, folder, db_file),
+  # Create display names with numbers for clear identification in output
+  display_name = sprintf("%02d - %s", id, name)
+)
+
+# Print the complete database information table for verification
+print(db_info)
+```
+
+## Database Connection Function
+
+```{r connection_function}
+# Define function to safely connect to a SQLite database
+connect_to_db <- function(db_path) {
+  # Check if the database file actually exists at the specified path
+  if (file.exists(db_path)) {
+    # If file exists, create and return a database connection using RSQLite
+    dbConnect(RSQLite::SQLite(), db_path)
+  } else {
+    # If file doesn't exist, show warning message with the missing path
+    warning(paste("Database not found:", db_path))
+    # Return NULL to indicate connection failed
+    NULL
+  }
+}
+
+# Define function to get list of all tables in a database
+list_tables <- function(conn) {
+  # Check if connection object is valid (not NULL)
+  if (!is.null(conn)) {
+    # If valid connection, get and return list of table names
+    dbListTables(conn)
+  } else {
+    # If invalid connection, return NULL
+    NULL
+  }
+}
+
+# Define function to get the schema (structure) information for a specific table
+get_table_schema <- function(conn, table_name) {
+  # Check if connection is valid AND the table exists in the database
+  if (!is.null(conn) && table_name %in% dbListTables(conn)) {
+    # Execute SQLite PRAGMA command to get table structure information
+    # PRAGMA table_info() returns: column ID, name, type, not null, default value, primary key
+    dbGetQuery(conn, paste("PRAGMA table_info(", table_name, ")"))
+  } else {
+    # If connection invalid or table doesn't exist, return NULL
+    NULL
+  }
+}
+```
+
+## Explore Database Structures
+
+```{r explore_databases}
+# Initialize empty list to store database connections for later use
+db_connections <- list()
+# Initialize empty list to store schema information for all databases
+db_schemas <- list()
+
+# Loop through each database in our db_info table (from row 1 to total number of rows)
+for (i in 1:nrow(db_info)) {
+  # Extract the internal database name from current row
+  db_name <- db_info$name[i]
+  # Extract the full file path from current row
+  db_path <- db_info$full_path[i]
+  # Extract the display name (with numbers) from current row
+  display_name <- db_info$display_name[i]
+  
+  # Print header showing which database we're currently processing
+  cat("\n=== Database:", display_name, "===\n")
+  # Print the file path for verification
+  cat("Path:", db_path, "\n")
+  
+  # Check if the database file actually exists at the specified path
+  if (file.exists(db_path)) {
+    # If file exists, attempt to connect to the database
+    conn <- connect_to_db(db_path)
+    # Store the connection in our connections list using the database name as key
+    db_connections[[db_name]] <- conn
+    
+    # Check if connection was successful (not NULL)
+    if (!is.null(conn)) {
+      # Get list of all tables in this database
+      tables <- list_tables(conn)
+      # Print number of tables found and their names
+      cat("Tables found:", length(tables), "\n")
+      print(tables)
+      
+      # Initialize nested list to store schema info for this database
+      db_schemas[[db_name]] <- list()
+      # Loop through each table in this database
+      for (table in tables) {
+        # Get detailed schema information for current table
+        schema <- get_table_schema(conn, table)
+        # Store schema info in our nested structure
+        db_schemas[[db_name]][[table]] <- schema
+        # Print header for table schema
+        cat("\nSchema for table '", table, "':\n")
+        # Print the complete schema information
+        print(schema)
+      }
+    }
+  } else {
+    # If database file doesn't exist, print error message
+    cat("Database file not found!\n")
+  }
+}
+```
+
+## Sample Data from Each Database
+
+```{r sample_data}
+# Loop through each database connection we established earlier
+for (db_name in names(db_connections)) {
+  # Get the connection object for current database
+  conn <- db_connections[[db_name]]
+  # Find the display name for current database by matching internal name
+  display_name <- db_info$display_name[db_info$name == db_name]
+  # Check if connection is valid (not NULL)
+  if (!is.null(conn)) {
+    # Print header showing which database we're sampling data from
+    cat("\n=== Sample data from", display_name, "===\n")
+    
+    # Get list of all tables in current database
+    tables <- dbListTables(conn)
+    # Loop through each table in current database
+    for (table in tables) {
+      # Print header showing which table we're sampling
+      cat("\nSample from table '", table, "':\n")
+      # Use tryCatch to handle any errors that might occur during data retrieval
+      tryCatch({
+        # Execute SQL query to get first 5 rows from current table
+        sample_data <- dbGetQuery(conn, paste("SELECT * FROM", table, "LIMIT 5"))
+        # Print the sample data
+        print(sample_data)
+      }, error = function(e) {
+        # If any error occurs, print error message instead of crashing
+        cat("Error reading table:", e$message, "\n")
+      })
+    }
+  }
+}
+```
+
+## Database Comparison Analysis
+
+```{r database_comparison}
+# Initialize empty list to store comparison results for all databases
+comparison_results <- list()
+
+# Loop through each database connection we have established
+for (db_name in names(db_connections)) {
+  # Get connection object for current database
+  conn <- db_connections[[db_name]]
+  # Check if connection is valid (not NULL)
+  if (!is.null(conn)) {
+    # Get list of all tables in current database
+    tables <- dbListTables(conn)
+    
+    # Loop through each table in current database
+    for (table in tables) {
+      # Use tryCatch to handle any errors during row counting
+      tryCatch({
+        # Create SQL query to count total rows in current table
+        count_query <- paste("SELECT COUNT(*) as row_count FROM", table)
+        # Execute the count query and extract the numeric result
+        row_count <- dbGetQuery(conn, count_query)$row_count
+        
+        # Check if comparison_results variable exists (safety check)
+        if (!exists("comparison_results")) {
+          comparison_results <- list()
+        }
+        
+        # If this is first time seeing this table name, initialize empty tibble
+        if (is.null(comparison_results[[table]])) {
+          comparison_results[[table]] <- tibble(database = character(), rows = numeric())
+        }
+        
+        # Get display name for current database
+        display_name <- db_info$display_name[db_info$name == db_name]
+        # Add current database's row count to the comparison table
+        comparison_results[[table]] <- bind_rows(
+          comparison_results[[table]], 
+          tibble(database = display_name, rows = row_count)
+        )
+      }, error = function(e) {
+        # If error occurs during counting, print error message
+        cat("Error getting row count for", table, "in", db_name, ":", e$message, "\n")
+      })
+    }
+  }
+}
+
+# Print header for comparison summary
+cat("=== Database Comparison Summary ===\n")
+# Loop through each table name in our comparison results
+for (table_name in names(comparison_results)) {
+  # Print table name header
+  cat("\nTable:", table_name, "\n")
+  # Print the comparison table showing row counts across all databases
+  print(comparison_results[[table_name]])
+}
+```
+
+## Cleanup Connections
+
+```{r cleanup}
+# Loop through each database connection in our connections list
+for (conn in db_connections) {
+  # Check if connection is valid (not NULL) before attempting to close
+  if (!is.null(conn)) {
+    # Properly close the database connection to free up system resources
+    dbDisconnect(conn)
+  }
+}
+```
