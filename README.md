@@ -148,7 +148,7 @@ Each Mushaf database contains:
 
 ### Databases Configuration
 
-<img width="3400" height="909" alt="image" src="https://github.com/user-attachments/assets/7a25958a-f391-4901-b554-5d92a492b93a" />
+<img width="2020" height="1016" alt="image" src="https://github.com/user-attachments/assets/575d8665-ff74-479f-8f58-324a5ffd7b21" />
 
 ### Databases Simple Discovery
 
