@@ -57,6 +57,19 @@ Each database contains SQLite files with detailed page layouts, word positioning
 - **Data Sampling**: Shows first 5 rows from every table for content preview
 - **Row Counting**: Compares data volume across different Mushaf versions
 
+# Key Insights
+
+## Schema
+<img width="1071" height="331" alt="image" src="https://github.com/user-attachments/assets/a7579576-951a-42e1-a73f-2f28ebf54b5b" />
+
+<img width="1062" height="430" alt="image" src="https://github.com/user-attachments/assets/a9ed0544-3fc7-4aee-b62d-fa4cf38333fb" />
+<img width="1944" height="817" alt="image" src="https://github.com/user-attachments/assets/143d53f0-6159-4ec5-bc66-6a868fdc2315" />
+
+<img width="1944" height="817" alt="image" src="https://github.com/user-attachments/assets/d36c30b0-9523-4ba3-ada5-2f4a300951ac" />
+<img width="1944" height="817" alt="image" src="https://github.com/user-attachments/assets/e1eee51a-e8e8-4dc4-98a3-ca1d8b881386" />
+
+
+
 #### 2. Mushaf Statistics Analysis ([View Full Notebook](./Mushaf%20Statistics%20Analysis.Rmd))
 
 **Purpose**: Deep statistical analysis and comparative metrics
