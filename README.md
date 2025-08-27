@@ -1,4 +1,4 @@
-# Quran Universal Database (QUD) 📖
+# Unified Quranic Syntax Adapted Database - UQSAD 📖
 
 A comprehensive collection and analysis toolkit for multiple Quran Mushaf databases, providing systematic exploration, comparison, and statistical analysis of different Quranic text layouts and publishers.
 
