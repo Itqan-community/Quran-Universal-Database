@@ -142,15 +142,22 @@ Each Mushaf database contains:
 
 ## Key Insights
 
-### Schema
+### Unified Schema
+
 <img width="1071" height="331" alt="image" src="https://github.com/user-attachments/assets/a7579576-951a-42e1-a73f-2f28ebf54b5b" />
-### Database Discovery
+
+### Databases Configuration
+
+### Databases Simple Discovery
+
 <img width="1062" height="430" alt="image" src="https://github.com/user-attachments/assets/a9ed0544-3fc7-4aee-b62d-fa4cf38333fb" />
 
 ### Databases Inclusive Statistics Copmaprison
 <img width="1944" height="817" alt="image" src="https://github.com/user-attachments/assets/143d53f0-6159-4ec5-bc66-6a868fdc2315" />
 
+### Data Features Statistical Visualization
 
+<img width="3400" height="909" alt="image" src="https://github.com/user-attachments/assets/f7e04df7-f918-471f-8ee4-05c1a7cfac99" />
 
 ## Getting Started
 
