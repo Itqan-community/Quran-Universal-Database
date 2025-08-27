@@ -384,7 +384,7 @@ for (db_name in names(db_connections)) {
         
         # METHOD 1: Quick estimate using last_word_id from final row
         if ("last_word_id" %in% columns) {
-          max_word_query <- paste("SELECT MAX(last_word_id) as max_word_id FROM", table_name, "WHERE last_word_id IS NOT NULL")
+          max_word_query <- paste("SELECT MAX(CAST(last_word_id AS INTEGER)) as max_word_id FROM", table_name, "WHERE last_word_id IS NOT NULL AND last_word_id != ''")
           max_word_result <- dbGetQuery(conn, max_word_query)
           
           if (nrow(max_word_result) > 0 && !is.na(max_word_result$max_word_id) && !is.null(max_word_result$max_word_id)) {
@@ -396,11 +396,13 @@ for (db_name in names(db_connections)) {
           }
         }
         
-        # METHOD 2: Precise count by summing words per line
+        # METHOD 2: Precise count by summing words per line (using DISTINCT to avoid duplicates)
         if ("first_word_id" %in% columns && "last_word_id" %in% columns) {
           # Calculate words per line: (last_word_id - first_word_id + 1)
-          precise_count_query <- paste("SELECT SUM(last_word_id - first_word_id + 1) as total_words FROM", table_name, 
-                                      "WHERE first_word_id IS NOT NULL AND last_word_id IS NOT NULL")
+          # Use DISTINCT to handle databases with duplicate word ranges
+          precise_count_query <- paste("SELECT SUM(CAST(last_word_id AS INTEGER) - CAST(first_word_id AS INTEGER) + 1) as total_words FROM",
+                                      "(SELECT DISTINCT first_word_id, last_word_id FROM", table_name, 
+                                      "WHERE first_word_id IS NOT NULL AND first_word_id != '' AND last_word_id IS NOT NULL AND last_word_id != '')")
           precise_result <- dbGetQuery(conn, precise_count_query)
           
           if (nrow(precise_result) > 0 && !is.na(precise_result$total_words) && !is.null(precise_result$total_words)) {
@@ -429,8 +431,8 @@ for (db_name in names(db_connections)) {
         
         # Get word ID range
         if ("first_word_id" %in% columns && "last_word_id" %in% columns) {
-          range_query <- paste("SELECT MIN(first_word_id) as min_id, MAX(last_word_id) as max_id FROM", table_name,
-                              "WHERE first_word_id IS NOT NULL AND last_word_id IS NOT NULL")
+          range_query <- paste("SELECT MIN(CAST(first_word_id AS INTEGER)) as min_id, MAX(CAST(last_word_id AS INTEGER)) as max_id FROM", table_name,
+                              "WHERE first_word_id IS NOT NULL AND first_word_id != '' AND last_word_id IS NOT NULL AND last_word_id != ''")
           range_result <- dbGetQuery(conn, range_query)
           
           if (nrow(range_result) > 0 && !is.na(range_result$min_id)) {
@@ -460,12 +462,12 @@ for (db_name in names(db_connections)) {
           }
         }
         
-        # Calculate words per page (using correct page column)
+        # Calculate words per page (using correct page column and DISTINCT to avoid duplicates)
         if (!is.null(page_col) && "first_word_id" %in% columns && "last_word_id" %in% columns) {
           words_per_page_query <- paste("SELECT", page_col, "as page_num,", 
-                                       "SUM(last_word_id - first_word_id + 1) as words",
-                                       "FROM", table_name,
-                                       "WHERE first_word_id IS NOT NULL AND last_word_id IS NOT NULL",
+                                       "SUM(CAST(last_word_id AS INTEGER) - CAST(first_word_id AS INTEGER) + 1) as words",
+                                       "FROM (SELECT DISTINCT", page_col, ", first_word_id, last_word_id FROM", table_name,
+                                       "WHERE first_word_id IS NOT NULL AND first_word_id != '' AND last_word_id IS NOT NULL AND last_word_id != '')",
                                        "GROUP BY", page_col, "ORDER BY", page_col)
           
           page_words <- dbGetQuery(conn, words_per_page_query)
@@ -497,28 +499,72 @@ for (db_name in names(db_connections)) {
           }
         }
         
-        # Surah analysis (if surah column exists)
-        surah_cols <- columns[grepl("surah", columns, ignore.case = TRUE)]
-        if (length(surah_cols) > 0) {
-          surah_col <- surah_cols[1]
-          surah_count_query <- paste("SELECT COUNT(DISTINCT", surah_col, ") as surah_count FROM", table_name,
-                                    "WHERE", surah_col, "IS NOT NULL")
+        # Surah analysis - Use surah_name line_type for accurate count
+        # Some databases only mark surah numbers on title lines, not ayah lines
+        if ("line_type" %in% columns) {
+          # Method 1: Count surah_name lines (most reliable)
+          surah_count_query <- paste("SELECT COUNT(*) as surah_count FROM", table_name,
+                                    "WHERE line_type = 'surah_name'")
           surah_count_result <- dbGetQuery(conn, surah_count_query)
+          
+          # Handle duplicate surah_name lines (like in QPC Hafs)
+          if (nrow(surah_count_result) > 0 && surah_count_result$surah_count > 114) {
+            # If more than 114, there might be duplicates - count distinct pages with surah_name
+            if (!is.null(page_col)) {
+              distinct_surah_pages_query <- paste("SELECT COUNT(DISTINCT", page_col, ") as surah_count FROM", table_name,
+                                                "WHERE line_type = 'surah_name' AND", page_col, "IS NOT NULL")
+              distinct_result <- dbGetQuery(conn, distinct_surah_pages_query)
+              if (nrow(distinct_result) > 0) {
+                surah_count_result$surah_count <- distinct_result$surah_count
+              }
+            }
+          }
+        } else {
+          # Fallback: Use surah_number column if line_type doesn't exist
+          surah_cols <- columns[grepl("surah", columns, ignore.case = TRUE)]
+          if (length(surah_cols) > 0) {
+            surah_col <- surah_cols[1]
+            surah_count_query <- paste("SELECT COUNT(DISTINCT", surah_col, ") as surah_count FROM", table_name,
+                                      "WHERE", surah_col, "IS NOT NULL AND", surah_col, "> 0")
+            surah_count_result <- dbGetQuery(conn, surah_count_query)
+          } else {
+            surah_count_result <- data.frame(surah_count = 0)
+          }
+        }
           
           if (nrow(surah_count_result) > 0) {
             db_stats$total_surahs <- as.numeric(surah_count_result$surah_count)
             
-            # Surah-to-page mapping (using correct page column)
-            if (!is.null(page_col)) {
-              mapping_query <- paste("SELECT", surah_col, "as surah_number, MIN(", page_col, ") as start_page, MAX(", page_col, ") as end_page",
-                                    "FROM", table_name, 
-                                    "WHERE", surah_col, "IS NOT NULL AND", page_col, "IS NOT NULL",
-                                    "GROUP BY", surah_col, "ORDER BY", surah_col)
+            # Surah-to-page mapping - Use surah_name lines for accurate mapping
+            if (!is.null(page_col) && "line_type" %in% columns) {
+              # Get page numbers where surah_name lines appear (most reliable method)
+              mapping_query <- paste("SELECT", 
+                                    "ROW_NUMBER() OVER (ORDER BY", page_col, ") as surah_number,",
+                                    page_col, "as start_page,", page_col, "as end_page",
+                                    "FROM", table_name,
+                                    "WHERE line_type = 'surah_name' AND", page_col, "IS NOT NULL",
+                                    "ORDER BY", page_col)
               
               surah_mapping <- dbGetQuery(conn, mapping_query)
               if (nrow(surah_mapping) > 0) {
                 surah_mapping <- surah_mapping %>% mutate(database = display_name)
                 surah_page_mapping <- bind_rows(surah_page_mapping, surah_mapping)
+              }
+            } else if (!is.null(page_col)) {
+              # Fallback to surah_number column if line_type doesn't exist
+              surah_cols <- columns[grepl("surah", columns, ignore.case = TRUE)]
+              if (length(surah_cols) > 0) {
+                surah_col <- surah_cols[1]
+                mapping_query <- paste("SELECT", surah_col, "as surah_number, MIN(", page_col, ") as start_page, MAX(", page_col, ") as end_page",
+                                      "FROM", table_name, 
+                                      "WHERE", surah_col, "IS NOT NULL AND", surah_col, "> 0 AND", page_col, "IS NOT NULL",
+                                      "GROUP BY", surah_col, "ORDER BY", surah_col)
+                
+                surah_mapping <- dbGetQuery(conn, mapping_query)
+                if (nrow(surah_mapping) > 0) {
+                  surah_mapping <- surah_mapping %>% mutate(database = display_name)
+                  surah_page_mapping <- bind_rows(surah_page_mapping, surah_mapping)
+                }
               }
             }
             
@@ -721,25 +767,23 @@ if (nrow(surah_page_mapping) > 0) {
   # Clean and standardize surah mapping data
   surah_clean <- surah_page_mapping %>%
     mutate(
-      # Clean surah identifiers (could be number or name)
+      # Clean surah identifiers (using only surah_number since surah_name doesn't exist)
+      # Filter out Surah 0 as it doesn't exist (Quran has Surahs 1-114)
       surah_id = case_when(
-        !is.na(surah_number) ~ paste("Surah", surah_number),
-        !is.na(surah_name) ~ str_trim(surah_name),
+        !is.na(surah_number) & surah_number > 0 ~ paste("Surah", surah_number),
         TRUE ~ "Unknown"
       ),
-      # Extract page ranges
+      # Extract page ranges (using existing column names)
       page_start = case_when(
         !is.na(start_page) ~ start_page,
-        !is.na(page) ~ page,
         TRUE ~ NA_integer_
       ),
       page_end = case_when(
         !is.na(end_page) ~ end_page,
-        !is.na(page) ~ page,
         TRUE ~ NA_integer_
       )
     ) %>%
-    filter(!is.na(page_start)) %>%
+    filter(!is.na(page_start) & surah_number > 0) %>%
     arrange(database, page_start)
   
   # Sample of surah mappings
@@ -794,7 +838,16 @@ for (i in 1:nrow(mushaf_statistics)) {
   cat("• Total Words:", format(stats$total_words, big.mark = ","), "\n") 
   cat("• Total Lines:", format(stats$total_lines, big.mark = ","), "\n")
   cat("• Total Pages:", format(stats$total_pages, big.mark = ","), "\n")
-  cat("• Total Surahs:", stats$total_surahs, "\n")
+  cat("• Total Surahs:", stats$total_surahs)
+  
+  # Add note for databases with incomplete surah data
+  if (grepl("nastaleeq", stats$database, ignore.case = TRUE) && stats$total_surahs == 1) {
+    cat(" (Note: Surah data incomplete - database contains full Quran text but lacks proper surah markers)")
+  } else if (stats$total_surahs == 1) {
+    cat(" (Note: Database appears to have incomplete surah data)")
+  }
+  cat("\n")
+  
   cat("• Word ID Range:", stats$word_id_range, "\n")
   
   cat("\n### 📏 Page Metrics\n")
