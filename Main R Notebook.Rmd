@@ -65,8 +65,7 @@ library(tibble)
 ## Database Paths
 
 ```{r database_paths}
-# Define the base directory path where all Mushaf databases are stored
-base_path <- "C:/Users/omarh/OneDrive/Belgeler/Software Projects/Quran Database/Mushafs"
+base_path <- "./Mushafs"
 
 # Create a structured tibble (data frame) containing information about all 11 databases
 db_info <- tibble(

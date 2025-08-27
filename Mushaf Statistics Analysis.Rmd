@@ -113,7 +113,7 @@ cat("📅 Analysis started at:", format(start_time), "\n")
 
 ```{r database_setup}
 # Define the base directory where all Mushaf databases are stored
-base_path <- "C:/Users/omarh/OneDrive/Belgeler/Software Projects/Quran Database/Mushafs"
+base_path <- "./Mushafs"
 
 # Create comprehensive database information table
 db_info <- tibble(
