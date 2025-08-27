@@ -4,7 +4,7 @@ A comprehensive collection and analysis toolkit for multiple Quran Mushaf databa
 
 ## What This Repository Contains
 
-The **Quran Universal Database** project contains **11 different Mushaf databases** representing various Quranic text layouts, scripts, and publishers. Each database stores the complete Quran text with detailed page-by-page and line-by-line organization.
+The **Unified Quranic Syntax Adapted Database - UQSAD** project contains **11 different Mushaf databases** representing various Quranic text layouts, scripts, and publishers. Each database stores the complete Quran text with detailed page-by-page and line-by-line organization.
 
 ### Database Collection
 

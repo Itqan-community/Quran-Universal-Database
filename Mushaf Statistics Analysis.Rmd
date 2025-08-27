@@ -1,6 +1,6 @@
 ---
 title: "Mushaf Databases - Comprehensive Statistics Analysis"
-author: "Quran Universal Database Project"
+author: "Unified Quranic Syntax Adapted Database - UQSAD Project"
 date: "`r Sys.Date()`"
 output: 
   html_notebook:

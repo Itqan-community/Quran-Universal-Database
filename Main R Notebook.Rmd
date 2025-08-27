@@ -1,9 +1,9 @@
 ---
-title: "Quran Universal Database - Analysis"
+title: "Unified Quranic Syntax Adapted Database - UQSAD Analysis"
 output: html_notebook
 ---
 
-# Quran Universal Database - QUD قُد Analysis
+# Unified Quranic Syntax Adapted Database - UQSAD Analysis
 
 This notebook analyzes multiple Quran databases from different Mushaf layouts and publishers.
 
