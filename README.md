@@ -183,6 +183,25 @@ This database collection enables research in:
 - **Digital Humanities**: Computational analysis of religious texts
 - **Publishing Standards**: Comparison between different Quran publishing houses
 
+## Dataset Comparison Inventory
+
+We are creating systematic comparisons between various datasets to thoroughly inventory the pieces of information uploaded by different organizations. This comparative analysis helps identify unique features, commonalities, and variations across Mushaf layouts.
+
+### QUL Mushafs Layout Mapping Data
+
+| Comparison Aspect | Value | Description |
+|-------------------|-------|-------------|
+| **Line Data** | `first_word_id`, `last_word_id` | Indicates which words are in each line as per each Mushaf |
+| **Ayah Data** | `line_type`, `page_number` | Shows how ayahs are distributed over lines per each Mushaf |
+
+The database schema provides comprehensive mapping through key columns:
+- **`first_word_id`**: Starting word identifier for each line
+- **`last_word_id`**: Ending word identifier for each line  
+- **`page_number`**: Page location within each Mushaf
+- **`line_type`**: Content type classification (text, surah_name, etc.)
+
+This structured approach enables precise cross-database comparisons and statistical analysis of different Mushaf layouts and publishing approaches.
+
 ## Data Quality
 
 All databases contain:
